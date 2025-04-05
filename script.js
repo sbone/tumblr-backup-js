@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const tumblr = require('tumblr.js');
 const mkdirp = require('mkdirp');
-const https = require('https');
+const ytdl = require('@distube/ytdl-core');
+
 
 // Configuration for your Tumblr API access
 const API_KEY = process.env.API_KEY;
@@ -34,6 +35,37 @@ if (fs.existsSync(progressFile)) {
 
 // Create the backup directory if it doesn't exist
 mkdirp.sync(backupDir);
+
+// Function to download videos (YouTube embed or Tumblr video)
+async function downloadVideo(url, postDir, videoName) {
+  const filePath = path.join(postDir, videoName);
+
+  // Skip if the video is already downloaded
+  if (fs.existsSync(filePath)) {
+    console.log(`Skipping ${filePath}, already downloaded.`);
+    return;
+  }
+
+  try {
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      const stream = ytdl(url, { quality: 'highest' });
+      const writer = fs.createWriteStream(filePath);
+      stream.pipe(writer);
+      writer.on('finish', () => {
+        console.log(`Downloaded ${filePath}`);
+      });
+    } else {
+      const response = await axios.get(url, { responseType: 'stream' });
+      const writer = fs.createWriteStream(filePath);
+      response.data.pipe(writer);
+      writer.on('finish', () => {
+        console.log(`Downloaded ${filePath}`);
+      });
+    }
+  } catch (error) {
+    console.error(`Error downloading ${url}:`, error.message);
+  }
+}
 
 // Function to download an image
 async function downloadImage(url, postId, postDir, imageName) {
@@ -95,6 +127,27 @@ async function processPost(post) {
       const photoUrl = photo.original_size.url;
       const imageName = path.basename(photoUrl); // Use the image URL to get the file name
       await downloadImage(photoUrl, postId, postDir, imageName);
+    }
+  }
+
+  // Download videos if the post has any
+  if (post.video_url) {
+    const videoUrl = post.video_url;
+    const videoName = 'video.mp4'; // You can customize the video name if needed
+    await downloadVideo(videoUrl, postDir, videoName);
+  }
+
+  // Check for embedded videos in the post body
+  if (post.body) {
+    const youtubeRegex = /https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/[^\s]+/g;
+    const tumblrVideoRegex = /<video[^>]+src="([^"]+)"[^>]*>/g;
+
+    let match;
+    while ((match = youtubeRegex.exec(post.body)) !== null) {
+      await downloadVideo(match[0], postDir, 'youtube_video.mp4');
+    }
+    while ((match = tumblrVideoRegex.exec(post.body)) !== null) {
+      await downloadVideo(match[1], postDir, 'tumblr_video.mp4');
     }
   }
 
