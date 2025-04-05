@@ -1,0 +1,17 @@
+{
+  "name": "tumblr-backup",
+  "version": "1.0.0",
+  "description": "Backup your Tumblr blog's posts, images, and captions.",
+  "main": "backup-tumblr.js",
+  "scripts": {
+    "backup": "node backup-tumblr.js"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "tumblr.js": "^5.0.0",
+    "mkdirp": "^3.0.1",
+    "dotenv": "^16.4.7"
+  },
+  "author": "",
+  "license": "ISC"
+}
