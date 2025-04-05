@@ -36,8 +36,10 @@ if (fs.existsSync(progressFile)) {
 mkdirp.sync(backupDir);
 
 // Function to download an image
-async function downloadImage(url, postId, imageName) {
-  const filePath = path.join(backupDir, `${postId}_${imageName}`);
+async function downloadImage(url, postId, postDir, imageName) {
+  const filePath = path.join(postDir, imageName);
+
+  // Skip if the image is already downloaded
   if (fs.existsSync(filePath)) {
     console.log(`Skipping ${filePath}, already downloaded.`);
     return;
@@ -70,16 +72,29 @@ async function processPost(post) {
 
   // Save the caption and timestamp
   const caption = post.caption || 'No caption';
-  const timestamp = new Date(post.date * 1000).toISOString();
-  const captionFile = path.join(postDir, 'caption.txt');
-  fs.writeFileSync(captionFile, `Timestamp: ${timestamp}\nCaption:\n${caption}`);
+  let timestamp;
 
-  // Download images
+  if (post.date) {
+    timestamp = new Date(post.date);
+    if (isNaN(timestamp)) {
+      console.error(`Invalid timestamp for post ${post.id}, using current time instead.`);
+      timestamp = new Date();
+    }
+  } else {
+    console.error(`No timestamp available for post ${post.id}, using current time instead.`);
+    timestamp = new Date();
+  }
+
+  const timestampString = timestamp.toISOString();
+  const captionFile = path.join(postDir, 'caption.txt');
+  fs.writeFileSync(captionFile, `Timestamp: ${timestampString}\nCaption:\n${caption}`);
+
+  // Download images if the post has any
   if (post.photos) {
     for (const photo of post.photos) {
       const photoUrl = photo.original_size.url;
-      const imageName = path.basename(photoUrl);
-      await downloadImage(photoUrl, postId, imageName);
+      const imageName = path.basename(photoUrl); // Use the image URL to get the file name
+      await downloadImage(photoUrl, postId, postDir, imageName);
     }
   }
 
