@@ -1,6 +1,6 @@
 # tumblr-backup-js
 
-Script to archive a photo-based Tumblog, generating a file structure like so:
+Script to archive a Tumblog's photos and videos, generating a file structure like so:
 
 ```
 tumblr_backup/
@@ -10,9 +10,10 @@ tumblr_backup/
   │   ├── image2.jpg
   ├── 2345678901/
   │   ├── caption.txt
-  │   ├── image1.jpg
-  │   ├── image3.jpg
+  │   ├── video.mp4
 ```
+
+Progress is written to `progress.json` for resuming in case of interruption.
 
 ## Setup
 
