@@ -93,7 +93,7 @@ async function processPost(post) {
 // Function to fetch blog posts from Tumblr
 async function fetchPosts(offset = 0, limit = 20) {
   try {
-    const result = await client.posts(blogName, { offset, limit });
+    const result = await client.blogPosts(blogName, { offset, limit });
     return result.posts || [];
   } catch (error) {
     console.error('Error fetching posts:', error.message);
