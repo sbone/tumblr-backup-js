@@ -1,8 +1,9 @@
 require('dotenv').config();
 
-const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const tumblr = require('tumblr.js');
 const mkdirp = require('mkdirp');
 const ytdl = require('@distube/ytdl-core');
@@ -36,6 +37,176 @@ if (fs.existsSync(progressFile)) {
 // Create the backup directory if it doesn't exist
 mkdirp.sync(backupDir);
 
+async function downloadToFile(url, filePath) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+
+  if (!response.body) {
+    throw new Error('No response body to download.');
+  }
+
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(filePath));
+}
+
+function getLargestMediaUrl(mediaList) {
+  if (!Array.isArray(mediaList) || mediaList.length === 0) {
+    return null;
+  }
+
+  const sorted = [...mediaList].sort((a, b) => (b.width || 0) - (a.width || 0));
+  return sorted[0]?.url || null;
+}
+
+function getFileNameFromUrl(url, fallbackName) {
+  try {
+    const parsed = new URL(url);
+    const baseName = path.basename(parsed.pathname);
+    if (baseName && baseName !== '/') {
+      return baseName;
+    }
+  } catch (error) {
+    // URL parsing can fail for malformed sources; fallback below.
+  }
+
+  return fallbackName;
+}
+
+function collectMediaFromHtml(html, imageUrls, videoUrls) {
+  if (!html) return;
+
+  const imageRegex = /<img[^>]+src="([^"]+)"/g;
+  const tumblrVideoRegex = /<video[^>]+src="([^"]+)"/g;
+  const youtubeRegex = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s"'<>]+/g;
+
+  let match;
+  while ((match = imageRegex.exec(html)) !== null) {
+    imageUrls.add(match[1]);
+  }
+
+  while ((match = tumblrVideoRegex.exec(html)) !== null) {
+    videoUrls.add(match[1]);
+  }
+
+  while ((match = youtubeRegex.exec(html)) !== null) {
+    videoUrls.add(match[0]);
+  }
+}
+
+function collectMediaFromContentBlocks(blocks, imageUrls, videoUrls) {
+  if (!Array.isArray(blocks)) return;
+
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue;
+
+    if (block.type === 'image') {
+      const imageUrl = getLargestMediaUrl(block.media) || block.url;
+      if (imageUrl) imageUrls.add(imageUrl);
+    }
+
+    if (block.type === 'video') {
+      const videoUrl = getLargestMediaUrl(block.media) || block.url;
+      if (videoUrl) videoUrls.add(videoUrl);
+    }
+
+    if (block.type === 'text' && block.text) {
+      collectMediaFromHtml(block.text, imageUrls, videoUrls);
+    }
+  }
+}
+
+function getNormalizedCaptionValue(value) {
+  if (typeof value !== 'string') return '';
+  const withoutHtml = value.replace(/<[^>]*>/g, ' ');
+  return withoutHtml.replace(/\s+/g, ' ').trim();
+}
+
+function collectCaptionPartsFromBlocks(blocks, parts) {
+  if (!Array.isArray(blocks)) return;
+
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue;
+
+    if (block.type === 'text') {
+      if (block.text) parts.push(block.text);
+      continue;
+    }
+
+    if (block.type === 'link') {
+      if (block.title) parts.push(block.title);
+      if (block.description) parts.push(block.description);
+      continue;
+    }
+
+    if (block.type === 'image') {
+      if (block.caption) parts.push(block.caption);
+      if (block.alt_text) parts.push(block.alt_text);
+    }
+  }
+}
+
+function extractCaption(post) {
+  const captionParts = [];
+
+  if (post.caption) captionParts.push(post.caption);
+  if (post.body) captionParts.push(post.body);
+
+  collectCaptionPartsFromBlocks(post.content, captionParts);
+
+  if (Array.isArray(post.trail)) {
+    for (const trailItem of post.trail) {
+      if (trailItem?.content_raw) {
+        captionParts.push(trailItem.content_raw);
+      }
+
+      collectCaptionPartsFromBlocks(trailItem?.content, captionParts);
+    }
+  }
+
+  for (const part of captionParts) {
+    const normalized = getNormalizedCaptionValue(part);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return 'No caption';
+}
+
+function extractMediaUrls(post) {
+  const imageUrls = new Set();
+  const videoUrls = new Set();
+
+  if (Array.isArray(post.photos)) {
+    for (const photo of post.photos) {
+      const photoUrl = photo?.original_size?.url;
+      if (photoUrl) imageUrls.add(photoUrl);
+    }
+  }
+
+  if (post.video_url) {
+    videoUrls.add(post.video_url);
+  }
+
+  collectMediaFromContentBlocks(post.content, imageUrls, videoUrls);
+
+  if (Array.isArray(post.trail)) {
+    for (const trailItem of post.trail) {
+      collectMediaFromContentBlocks(trailItem?.content, imageUrls, videoUrls);
+      collectMediaFromHtml(trailItem?.content_raw, imageUrls, videoUrls);
+    }
+  }
+
+  collectMediaFromHtml(post.body, imageUrls, videoUrls);
+  collectMediaFromHtml(post.caption, imageUrls, videoUrls);
+
+  return {
+    imageUrls: [...imageUrls],
+    videoUrls: [...videoUrls]
+  };
+}
+
 // Function to download videos (YouTube embed or Tumblr video)
 async function downloadVideo(url, postDir, videoName) {
   const filePath = path.join(postDir, videoName);
@@ -49,18 +220,11 @@ async function downloadVideo(url, postDir, videoName) {
   try {
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       const stream = ytdl(url, { quality: 'highest' });
-      const writer = fs.createWriteStream(filePath);
-      stream.pipe(writer);
-      writer.on('finish', () => {
-        console.log(`Downloaded ${filePath}`);
-      });
+      await pipeline(stream, fs.createWriteStream(filePath));
+      console.log(`Downloaded ${filePath}`);
     } else {
-      const response = await axios.get(url, { responseType: 'stream' });
-      const writer = fs.createWriteStream(filePath);
-      response.data.pipe(writer);
-      writer.on('finish', () => {
-        console.log(`Downloaded ${filePath}`);
-      });
+      await downloadToFile(url, filePath);
+      console.log(`Downloaded ${filePath}`);
     }
   } catch (error) {
     console.error(`Error downloading ${url}:`, error.message);
@@ -78,13 +242,8 @@ async function downloadImage(url, postId, postDir, imageName) {
   }
 
   try {
-    const response = await axios.get(url, { responseType: 'stream' });
-    const writer = fs.createWriteStream(filePath);
-
-    response.data.pipe(writer);
-    writer.on('finish', () => {
-      console.log(`Downloaded ${filePath}`);
-    });
+    await downloadToFile(url, filePath);
+    console.log(`Downloaded ${filePath}`);
   } catch (error) {
     console.error(`Error downloading ${url}:`, error.message);
   }
@@ -103,7 +262,7 @@ async function processPost(post) {
   mkdirp.sync(postDir);
 
   // Save the caption and timestamp
-  const caption = post.caption || 'No caption';
+  const caption = extractCaption(post);
   let timestamp;
 
   if (post.date) {
@@ -121,34 +280,21 @@ async function processPost(post) {
   const captionFile = path.join(postDir, 'caption.txt');
   fs.writeFileSync(captionFile, `Timestamp: ${timestampString}\nCaption:\n${caption}`);
 
-  // Download images if the post has any
-  if (post.photos) {
-    for (const photo of post.photos) {
-      const photoUrl = photo.original_size.url;
-      const imageName = path.basename(photoUrl); // Use the image URL to get the file name
-      await downloadImage(photoUrl, postId, postDir, imageName);
-    }
+  const { imageUrls, videoUrls } = extractMediaUrls(post);
+  if (imageUrls.length === 0 && videoUrls.length === 0) {
+    console.log(`No media URLs found for post ${postId}.`);
   }
 
-  // Download videos if the post has any
-  if (post.video_url) {
-    const videoUrl = post.video_url;
-    const videoName = 'video.mp4'; // You can customize the video name if needed
+  for (let i = 0; i < imageUrls.length; i += 1) {
+    const imageUrl = imageUrls[i];
+    const imageName = getFileNameFromUrl(imageUrl, `image_${i + 1}.jpg`);
+    await downloadImage(imageUrl, postId, postDir, imageName);
+  }
+
+  for (let i = 0; i < videoUrls.length; i += 1) {
+    const videoUrl = videoUrls[i];
+    const videoName = getFileNameFromUrl(videoUrl, `video_${i + 1}.mp4`);
     await downloadVideo(videoUrl, postDir, videoName);
-  }
-
-  // Check for embedded videos in the post body
-  if (post.body) {
-    const youtubeRegex = /https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/[^\s]+/g;
-    const tumblrVideoRegex = /<video[^>]+src="([^"]+)"[^>]*>/g;
-
-    let match;
-    while ((match = youtubeRegex.exec(post.body)) !== null) {
-      await downloadVideo(match[0], postDir, 'youtube_video.mp4');
-    }
-    while ((match = tumblrVideoRegex.exec(post.body)) !== null) {
-      await downloadVideo(match[1], postDir, 'tumblr_video.mp4');
-    }
   }
 
   // Mark the post as backed up
