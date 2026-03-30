@@ -1,11 +1,8 @@
-require('dotenv').config();
-
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const tumblr = require('tumblr.js');
-const mkdirp = require('mkdirp');
 const ytdl = require('@distube/ytdl-core');
 
 
@@ -35,7 +32,7 @@ if (fs.existsSync(progressFile)) {
 }
 
 // Create the backup directory if it doesn't exist
-mkdirp.sync(backupDir);
+fs.mkdirSync(backupDir, { recursive: true });
 
 async function downloadToFile(url, filePath) {
   const response = await fetch(url);
@@ -259,7 +256,7 @@ async function processPost(post) {
 
   // Create a folder for the post
   const postDir = path.join(backupDir, String(postId));
-  mkdirp.sync(postDir);
+  fs.mkdirSync(postDir, { recursive: true });
 
   // Save the caption and timestamp
   const caption = extractCaption(post);
