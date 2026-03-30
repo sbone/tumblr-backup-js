@@ -4,11 +4,10 @@
   "description": "Backup your Tumblr blog's posts, images, and captions.",
   "main": "backup-tumblr.js",
   "scripts": {
-    "backup": "node script.js"
+    "backup": "node --env-file=.env script.js"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.8",
-    "dotenv": "^16.4.7",
     "tumblr.js": "^5.0.0"
   },
   "author": "",
