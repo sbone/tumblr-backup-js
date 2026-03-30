@@ -10,7 +10,14 @@
     "@distube/ytdl-core": "^4.16.8",
     "dotenv": "^16.4.7",
     "mkdirp": "^3.0.1",
-    "tumblr.js": "^5.0.0"
+    "tumblr.js": "^5.0.1",
+    "undici": "^6.24.0"
+  },
+  "overrides": {
+    "form-data": "^4.0.4",
+    "@distube/ytdl-core": {
+      "undici": "^7.24.0"
+    }
   },
   "author": "",
   "license": "ISC"
