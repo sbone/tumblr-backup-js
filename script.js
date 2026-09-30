@@ -204,46 +204,20 @@ function extractMediaUrls(post) {
   };
 }
 
-// Function to download videos (YouTube embed or Tumblr video)
-async function downloadVideo(url, postDir, videoName) {
-  const filePath = path.join(postDir, videoName);
-
-  // Skip if the video is already downloaded
+// Download media, preserving failures so the post can be retried.
+async function downloadMedia(url, postDir, fileName, isVideo = false) {
+  const filePath = path.join(postDir, fileName);
   if (fs.existsSync(filePath)) {
     console.log(`Skipping ${filePath}, already downloaded.`);
     return;
   }
 
-  try {
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      const stream = ytdl(url, { quality: 'highest' });
-      await pipeline(stream, fs.createWriteStream(filePath));
-      console.log(`Downloaded ${filePath}`);
-    } else {
-      await downloadToFile(url, filePath);
-      console.log(`Downloaded ${filePath}`);
-    }
-  } catch (error) {
-    console.error(`Error downloading ${url}:`, error.message);
-  }
-}
-
-// Function to download an image
-async function downloadImage(url, postId, postDir, imageName) {
-  const filePath = path.join(postDir, imageName);
-
-  // Skip if the image is already downloaded
-  if (fs.existsSync(filePath)) {
-    console.log(`Skipping ${filePath}, already downloaded.`);
-    return;
-  }
-
-  try {
+  if (isVideo && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+    await pipeline(ytdl(url, { quality: 'highest' }), fs.createWriteStream(filePath));
+  } else {
     await downloadToFile(url, filePath);
-    console.log(`Downloaded ${filePath}`);
-  } catch (error) {
-    console.error(`Error downloading ${url}:`, error.message);
   }
+  console.log(`Downloaded ${filePath}`);
 }
 
 // Function to process each post and download associated media
@@ -285,13 +259,13 @@ async function processPost(post) {
   for (let i = 0; i < imageUrls.length; i += 1) {
     const imageUrl = imageUrls[i];
     const imageName = getFileNameFromUrl(imageUrl, `image_${i + 1}.jpg`);
-    await downloadImage(imageUrl, postId, postDir, imageName);
+    await downloadMedia(imageUrl, postDir, imageName);
   }
 
   for (let i = 0; i < videoUrls.length; i += 1) {
     const videoUrl = videoUrls[i];
     const videoName = getFileNameFromUrl(videoUrl, `video_${i + 1}.mp4`);
-    await downloadVideo(videoUrl, postDir, videoName);
+    await downloadMedia(videoUrl, postDir, videoName, true);
   }
 
   // Mark the post as backed up
@@ -303,13 +277,8 @@ async function processPost(post) {
 
 // Function to fetch blog posts from Tumblr
 async function fetchPosts(offset = 0, limit = 20) {
-  try {
-    const result = await client.blogPosts(blogName, { offset, limit });
-    return result.posts || [];
-  } catch (error) {
-    console.error('Error fetching posts:', error.message);
-    return [];
-  }
+  const result = await client.blogPosts(blogName, { offset, limit });
+  return result.posts || [];
 }
 
 // Main backup function
@@ -334,6 +303,9 @@ async function backupBlog() {
 }
 
 // Run the backup
-backupBlog().catch((error) => {
-  console.error('Error during backup:', error.message);
-});
+if (require.main === module) {
+  backupBlog().catch((error) => {
+    console.error('Error during backup:', error.message);
+    process.exitCode = 1;
+  });
+}
