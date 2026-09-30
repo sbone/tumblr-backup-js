@@ -19,7 +19,7 @@ Progress is written to `progress.json` for resuming in case of interruption.
 
 ## Requirements
 
-- Node.js 20.6+ for `--env-file` support
+- Node.js 20.18.1+ for downloader compatibility and `--env-file` support
 - A Tumblr application and OAuth 1.0a tokens
 - Access to the private or password-protected blog you want to archive
 

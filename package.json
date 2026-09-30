@@ -8,14 +8,13 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.8",
-    "tumblr.js": "^5.0.1",
-    "undici": "^6.24.0"
+    "@distube/ytdl-core": "^4.16.12",
+    "tumblr.js": "^5.0.1"
   },
   "overrides": {
-    "form-data": "^4.0.4",
+    "form-data": "^4.0.6",
     "@distube/ytdl-core": {
-      "undici": "^7.24.0"
+      "undici": "^7.29.1"
     }
   },
   "author": "",
