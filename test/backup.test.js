@@ -53,15 +53,56 @@ test('YouTube download failure leaves the post retryable', async t => {
   assert.equal(fs.existsSync(path.join(app.dir, 'progress.json')), false);
 });
 
-test('forbidden media reports its URL and destination without marking completion', async t => {
-  const app = setup(t, { fetch: async () => new Response('Forbidden', { status: 403, statusText: 'Forbidden' }) });
-  await assert.rejects(app.run(`processPost(${JSON.stringify(post)})`), error => {
-    assert.match(error.message, /HTTP 403 Forbidden/);
-    assert.ok(error.message.includes(post.photos[0].original_size.url));
-    assert.ok(error.message.includes('tumblr_backup/1/image_1_image.jpg'));
-    return true;
+test('403s are recorded while other media and posts continue, then retried', async t => {
+  let fail = true;
+  const requests = [];
+  const blocked = post.photos[0].original_size.url;
+  const original = { ...post, post_url: 'https://example.tumblr.com/post/1',
+    video_url: 'https://example.com/video.mp4' };
+  const app = setup(t, {
+    fetch: async url => {
+      requests.push(url);
+      return new Response('media', { status: fail && url === blocked ? 403 : 200, statusText: 'Forbidden' });
+    },
+    blogPosts: async () => ({ posts: [original, { id: 2, date: '2020-01-01' }] })
   });
-  assert.equal(fs.existsSync(path.join(app.dir, 'progress.json')), false);
+  await app.run('backupBlog()');
+  const checkpoint = path.join(app.dir, 'progress.json');
+  const state = JSON.parse(fs.readFileSync(checkpoint));
+  assert.equal(state[1].status, 'to_investigate');
+  assert.equal(state[1].postUrl, original.post_url);
+  assert.equal(state[1].failures[0].url, blocked);
+  assert.equal(state[1].failures[0].statusCode, 403);
+  assert.equal(state[2].status, 'complete');
+  assert.equal(fs.existsSync(path.join(app.dir, 'tumblr_backup/1/video_1_video.mp4')), true);
+  assert.equal(app.runtime.exitCode, 1);
+  assert.ok(app.logs.some(message => message.includes('1 post(s) to investigate')));
+  assert.equal(app.logs.includes('Backup complete!'), false);
+  // Load the checkpoint as a fresh process would, then resolve the 403.
+  app.run("progress = JSON.parse(fs.readFileSync(progressFile, 'utf8'))");
+  fail = false;
+  await app.run(`processPost(${JSON.stringify(original)})`);
+  const resolved = JSON.parse(fs.readFileSync(checkpoint))[1];
+  assert.equal(resolved.status, 'complete');
+  assert.equal(resolved.failures, undefined);
+  assert.deepEqual(requests, [blocked, original.video_url, blocked]);
+});
+
+test('YouTube 403s are also recorded for investigation', async t => {
+  const app = setup(t, { ytdl: () => Readable.from((async function* () {
+    const error = new Error('Status code: 403');
+    error.statusCode = 403;
+    throw error;
+  })()) });
+  await app.run("processPost({id: 1, date: '2020-01-01', video_url: 'https://youtu.be/abc'})");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(app.dir, 'progress.json')))[1].status, 'to_investigate');
+});
+
+test('legacy completed posts remain skipped', async t => {
+  const app = setup(t, { fetch: async () => { throw new Error('must not download'); } });
+  app.run("progress = {1: {timestamp: '2020-01-01'}}");
+  await app.run(`processPost(${JSON.stringify(post)})`);
+  assert.equal(fs.existsSync(path.join(app.dir, 'tumblr_backup/1')), false);
 });
 
 test('API failure rejects the backup without reporting completion', async t => {

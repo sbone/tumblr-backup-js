@@ -36,7 +36,9 @@ fs.mkdirSync(backupDir, { recursive: true });
 async function downloadToFile(url, filePath) {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const error = new Error(`HTTP ${response.status} ${response.statusText}`);
+    error.statusCode = response.status;
+    throw error;
   }
 
   if (!response.body) {
@@ -220,6 +222,10 @@ async function downloadMedia(url, postDir, fileName, isVideo = false) {
     }
     fs.renameSync(temporaryPath, filePath);
   } catch (error) {
+    if (error.statusCode === 403) {
+      console.error(`To investigate: ${url} (${filePath}): ${error.message}`);
+      return { url, filePath, statusCode: 403, error: error.message };
+    }
     throw new Error(`Failed to download ${url} to ${filePath}: ${error.message}`, { cause: error });
   }
   console.log(`Downloaded ${filePath}`);
@@ -228,7 +234,7 @@ async function downloadMedia(url, postDir, fileName, isVideo = false) {
 // Function to process each post and download associated media
 async function processPost(post) {
   const postId = post.id;
-  if (progress[postId]) {
+  if (progress[postId] && progress[postId].status !== 'to_investigate') {
     console.log(`Skipping post ${postId} (already backed up).`);
     return;
   }
@@ -262,20 +268,26 @@ async function processPost(post) {
     console.log(`No media URLs found for post ${postId}.`);
   }
 
+  const failures = [];
   for (let i = 0; i < imageUrls.length; i += 1) {
     const imageUrl = imageUrls[i];
     const imageName = `image_${i + 1}_${getFileNameFromUrl(imageUrl, 'image.jpg')}`;
-    await downloadMedia(imageUrl, postDir, imageName);
+    const failure = await downloadMedia(imageUrl, postDir, imageName);
+    if (failure) failures.push(failure);
   }
 
   for (let i = 0; i < videoUrls.length; i += 1) {
     const videoUrl = videoUrls[i];
     const videoName = `video_${i + 1}_${getFileNameFromUrl(videoUrl, 'video.mp4')}`;
-    await downloadMedia(videoUrl, postDir, videoName, true);
+    const failure = await downloadMedia(videoUrl, postDir, videoName, true);
+    if (failure) failures.push(failure);
   }
 
-  // Publish the checkpoint before marking the post complete in memory.
-  const nextProgress = { ...progress, [postId]: { timestamp } };
+  // Publish the checkpoint before changing the post's state in memory.
+  const state = failures.length
+    ? { status: 'to_investigate', timestamp, postUrl: post.post_url, failures }
+    : { status: 'complete', timestamp };
+  const nextProgress = { ...progress, [postId]: state };
   fs.writeFileSync(`${progressFile}.part`, JSON.stringify(nextProgress, null, 2));
   fs.renameSync(`${progressFile}.part`, progressFile);
   progress = nextProgress;
@@ -305,7 +317,13 @@ async function backupBlog() {
     offset += limit;
   } while (posts.length === limit);
 
-  console.log('Backup complete!');
+  const unresolved = Object.values(progress).filter(post => post.status === 'to_investigate').length;
+  if (unresolved) {
+    console.log(`Backup finished with ${unresolved} post(s) to investigate. See ${progressFile}.`);
+    process.exitCode = 1;
+  } else {
+    console.log('Backup complete!');
+  }
 }
 
 // Run the backup

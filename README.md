@@ -62,7 +62,8 @@ The script will:
 
 - Existing downloaded files are skipped.
 - Downloads use `.part` files and are renamed only after success; interrupted downloads are retried.
-- Failed downloads or API requests stop the run with a nonzero exit status. A post is marked complete only after all its media downloads succeed.
+- Media HTTP 403s are recorded in `progress.json` with `status: "to_investigate"`, the post URL, and failed media URLs. Remaining media and posts continue downloading. These posts are retried on the next run; completed files are skipped. The final summary reports unresolved posts and returns a nonzero exit status.
+- Other download errors and API errors stop the run with a nonzero exit status. A post is marked complete only after all its media downloads succeed. Existing progress entries without a status remain completed.
 - `post.json` preserves the full post returned by Tumblr, including formatting, tags, and reblog trail; `caption.txt` is a short readable summary.
 - YouTube URLs are still downloaded through `@distube/ytdl-core`.
 - If you change `BLOG_NAME`, remove or rename `progress.json` unless you want to reuse the old progress state.
