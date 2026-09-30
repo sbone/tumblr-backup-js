@@ -53,6 +53,17 @@ test('YouTube download failure leaves the post retryable', async t => {
   assert.equal(fs.existsSync(path.join(app.dir, 'progress.json')), false);
 });
 
+test('forbidden media reports its URL and destination without marking completion', async t => {
+  const app = setup(t, { fetch: async () => new Response('Forbidden', { status: 403, statusText: 'Forbidden' }) });
+  await assert.rejects(app.run(`processPost(${JSON.stringify(post)})`), error => {
+    assert.match(error.message, /HTTP 403 Forbidden/);
+    assert.ok(error.message.includes(post.photos[0].original_size.url));
+    assert.ok(error.message.includes('tumblr_backup/1/image_1_image.jpg'));
+    return true;
+  });
+  assert.equal(fs.existsSync(path.join(app.dir, 'progress.json')), false);
+});
+
 test('API failure rejects the backup without reporting completion', async t => {
   const app = setup(t, { blogPosts: async () => { throw new Error('API unavailable'); } });
   await assert.rejects(app.run('backupBlog()'), /API unavailable/);

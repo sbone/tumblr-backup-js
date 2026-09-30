@@ -212,12 +212,16 @@ async function downloadMedia(url, postDir, fileName, isVideo = false) {
   }
 
   const temporaryPath = `${filePath}.part`;
-  if (isVideo && (url.includes('youtube.com') || url.includes('youtu.be'))) {
-    await pipeline(ytdl(url, { quality: 'highest' }), fs.createWriteStream(temporaryPath));
-  } else {
-    await downloadToFile(url, temporaryPath);
+  try {
+    if (isVideo && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+      await pipeline(ytdl(url, { quality: 'highest' }), fs.createWriteStream(temporaryPath));
+    } else {
+      await downloadToFile(url, temporaryPath);
+    }
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    throw new Error(`Failed to download ${url} to ${filePath}: ${error.message}`, { cause: error });
   }
-  fs.renameSync(temporaryPath, filePath);
   console.log(`Downloaded ${filePath}`);
 }
 
