@@ -2,7 +2,7 @@
   "name": "tumblr-backup",
   "version": "1.0.0",
   "description": "Backup your Tumblr blog's posts, images, and captions.",
-  "main": "backup-tumblr.js",
+  "main": "script.js",
   "scripts": {
     "backup": "node --env-file=.env script.js",
     "test": "node --test"
