@@ -233,6 +233,7 @@ async function processPost(post) {
   // Create a folder for the post
   const postDir = path.join(backupDir, String(postId));
   fs.mkdirSync(postDir, { recursive: true });
+  fs.writeFileSync(path.join(postDir, 'post.json'), JSON.stringify(post, null, 2));
 
   // Save the caption and timestamp
   const caption = extractCaption(post);

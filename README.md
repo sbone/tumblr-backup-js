@@ -6,11 +6,13 @@ Script to archive a Tumblr blog's photos and videos, generating a file structure
 tumblr_backup/
   ├── 1234567890/
   │   ├── caption.txt
-  │   ├── image1.jpg
-  │   ├── image2.jpg
+  │   ├── post.json
+  │   ├── image_1_original.jpg
+  │   ├── image_2_original.jpg
   ├── 2345678901/
   │   ├── caption.txt
-  │   ├── video.mp4
+  │   ├── post.json
+  │   ├── video_1_original.mp4
 ```
 
 Progress is written to `progress.json` for resuming in case of interruption.
@@ -59,5 +61,12 @@ The script will:
 ## Notes
 
 - Existing downloaded files are skipped.
+- Downloads use `.part` files and are renamed only after success; interrupted downloads are retried.
+- Failed downloads or API requests stop the run with a nonzero exit status. A post is marked complete only after all its media downloads succeed.
+- `post.json` preserves the full post returned by Tumblr, including formatting, tags, and reblog trail; `caption.txt` is a short readable summary.
 - YouTube URLs are still downloaded through `@distube/ytdl-core`.
 - If you change `BLOG_NAME`, remove or rename `progress.json` unless you want to reuse the old progress state.
+
+If upgrading from the original script, rename the old `progress.json` before running again to recheck posts previously marked complete and add `post.json`. Media will download again under the new indexed filenames; old files are retained. The script cannot detect incomplete files or missing media recorded as successful by the old version.
+
+Run the offline regression tests with `npm test`. They use temporary directories and simulated HTTP, YouTube, and Tumblr responses; no credentials are needed.

@@ -126,3 +126,12 @@ test('same-basename media remain distinct, including across images and videos', 
   assert.equal(media.length, 3);
   assert.deepEqual(media.map(name => fs.readFileSync(path.join(dir, name), 'utf8')).sort(), [...urls, video].sort());
 });
+
+test('raw post JSON preserves all text blocks, formatting, tags, and trail', async t => {
+  const app = setup(t);
+  const original = { id: 1, date: '2020-01-01', caption: '<b>Caption</b>', tags: ['archive'],
+    content: [{ type: 'text', text: 'First' }, { type: 'text', text: 'Second' }],
+    trail: [{ content_raw: '<p>Original author</p>' }] };
+  await app.run(`processPost(${JSON.stringify(original)})`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(app.dir, 'tumblr_backup/1/post.json'))), original);
+});
