@@ -260,13 +260,13 @@ async function processPost(post) {
 
   for (let i = 0; i < imageUrls.length; i += 1) {
     const imageUrl = imageUrls[i];
-    const imageName = getFileNameFromUrl(imageUrl, `image_${i + 1}.jpg`);
+    const imageName = `image_${i + 1}_${getFileNameFromUrl(imageUrl, 'image.jpg')}`;
     await downloadMedia(imageUrl, postDir, imageName);
   }
 
   for (let i = 0; i < videoUrls.length; i += 1) {
     const videoUrl = videoUrls[i];
-    const videoName = getFileNameFromUrl(videoUrl, `video_${i + 1}.mp4`);
+    const videoName = `video_${i + 1}_${getFileNameFromUrl(videoUrl, 'video.mp4')}`;
     await downloadMedia(videoUrl, postDir, videoName, true);
   }
 

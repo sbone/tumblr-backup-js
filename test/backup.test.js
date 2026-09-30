@@ -30,7 +30,7 @@ function setup(t, options = {}) {
     return require(name);
   };
   requireStub.main = options.main ? entry : {};
-  const context = vm.createContext({ require: requireStub, module: entry, process: runtime,
+  const context = vm.createContext({ require: requireStub, module: entry, process: runtime, URL,
     fetch: options.fetch || (async () => new Response('image')),
     console: { log: message => logs.push(message), error() {} } });
   vm.runInContext(source, context);
@@ -114,4 +114,15 @@ test('interrupted progress write preserves the previous checkpoint', async t => 
   fail = false;
   await app.run("processPost({id: 2, date: '2020-01-01'})");
   assert.ok(JSON.parse(fs.readFileSync(checkpoint))[2]);
+});
+
+test('same-basename media remain distinct, including across images and videos', async t => {
+  const app = setup(t, { fetch: async url => new Response(url) });
+  const urls = ['https://a.example/shared.jpg', 'https://b.example/shared.jpg'];
+  const video = 'https://c.example/shared.jpg';
+  await app.run(`processPost(${JSON.stringify({ ...post, photos: urls.map(url => ({ original_size: { url } })), video_url: video })})`);
+  const dir = path.join(app.dir, 'tumblr_backup/1');
+  const media = fs.readdirSync(dir).filter(name => name.endsWith('.jpg'));
+  assert.equal(media.length, 3);
+  assert.deepEqual(media.map(name => fs.readFileSync(path.join(dir, name), 'utf8')).sort(), [...urls, video].sort());
 });
