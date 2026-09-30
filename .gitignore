@@ -145,4 +145,5 @@ dist
 
 # Data
 progress.json
+progress.json.part
 tumblr_backup

@@ -64,3 +64,54 @@ test('command failure sets a nonzero exit status', async t => {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.runtime.exitCode, 1);
 });
+
+for (const youtube of [false, true]) {
+  test(`${youtube ? 'YouTube' : 'HTTP'} interrupted stream never publishes a partial file`, async t => {
+    let fail = true;
+    const brokenStream = () => Readable.from((async function* () {
+      yield 'partial';
+      await new Promise(resolve => setImmediate(resolve));
+      throw new Error('interrupted');
+    })());
+    const app = setup(t, {
+      fetch: async () => fail ? new Response(Readable.toWeb(brokenStream())) : new Response('complete'),
+      ytdl: () => fail ? brokenStream() : Readable.from(['complete'])
+    });
+    const url = youtube ? 'https://youtu.be/abc' : 'https://example.com/image.jpg';
+    const download = `downloadMedia('${url}', './tumblr_backup', 'media.bin', ${youtube})`;
+    await assert.rejects(app.run(download), /interrupted/);
+    const destination = path.join(app.dir, 'tumblr_backup/media.bin');
+    assert.equal(fs.existsSync(destination), false);
+    // A stale temporary file from a killed process must also be overwritten.
+    fs.writeFileSync(`${destination}.part`, 'stale');
+    fail = false;
+    await app.run(download);
+    assert.equal(fs.readFileSync(destination, 'utf8'), 'complete');
+    assert.equal(fs.existsSync(`${destination}.part`), false);
+    fail = true;
+    await app.run(download); // Completed files still skip the network.
+  });
+}
+
+test('interrupted progress write preserves the previous checkpoint', async t => {
+  let fail = false;
+  let app;
+  app = setup(t, { fs: { writeFileSync(file, data) {
+    const destination = path.resolve(app.dir, file);
+    if (fail && file.startsWith('./progress.json')) {
+      fs.writeFileSync(destination, '{');
+      throw new Error('disk full');
+    }
+    fs.writeFileSync(destination, data);
+  } } });
+  await app.run("processPost({id: 1, date: '2020-01-01'})");
+  const checkpoint = path.join(app.dir, 'progress.json');
+  const previous = fs.readFileSync(checkpoint, 'utf8');
+  fail = true;
+  await assert.rejects(app.run("processPost({id: 2, date: '2020-01-01'})"), /disk full/);
+  assert.equal(fs.readFileSync(checkpoint, 'utf8'), previous);
+  assert.equal(app.run('Boolean(progress[2])'), false);
+  fail = false;
+  await app.run("processPost({id: 2, date: '2020-01-01'})");
+  assert.ok(JSON.parse(fs.readFileSync(checkpoint))[2]);
+});

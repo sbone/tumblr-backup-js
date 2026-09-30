@@ -212,11 +212,13 @@ async function downloadMedia(url, postDir, fileName, isVideo = false) {
     return;
   }
 
+  const temporaryPath = `${filePath}.part`;
   if (isVideo && (url.includes('youtube.com') || url.includes('youtu.be'))) {
-    await pipeline(ytdl(url, { quality: 'highest' }), fs.createWriteStream(filePath));
+    await pipeline(ytdl(url, { quality: 'highest' }), fs.createWriteStream(temporaryPath));
   } else {
-    await downloadToFile(url, filePath);
+    await downloadToFile(url, temporaryPath);
   }
+  fs.renameSync(temporaryPath, filePath);
   console.log(`Downloaded ${filePath}`);
 }
 
@@ -268,11 +270,11 @@ async function processPost(post) {
     await downloadMedia(videoUrl, postDir, videoName, true);
   }
 
-  // Mark the post as backed up
-  progress[postId] = { timestamp };
-
-  // Save progress after every post
-  fs.writeFileSync(progressFile, JSON.stringify(progress, null, 2));
+  // Publish the checkpoint before marking the post complete in memory.
+  const nextProgress = { ...progress, [postId]: { timestamp } };
+  fs.writeFileSync(`${progressFile}.part`, JSON.stringify(nextProgress, null, 2));
+  fs.renameSync(`${progressFile}.part`, progressFile);
+  progress = nextProgress;
 }
 
 // Function to fetch blog posts from Tumblr
